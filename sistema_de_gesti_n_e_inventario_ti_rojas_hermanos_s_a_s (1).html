@@ -1,0 +1,930 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sistema de Gestión e Inventario TI — Rojas Hermanos S.A.S.</title>
+    
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Alpine.js CDN -->
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    <!-- Lucide Icons CDN -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <!-- SheetJS (XLSX) for reading/writing Excel files -->
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    <!-- Handsontable for Excel-like Grid Editing -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/handsontable@12.3.0/dist/handsontable.full.min.css" />
+    <script src="https://cdn.jsdelivr.net/npm/handsontable@12.3.0/dist/handsontable.full.min.js"></script>
+    <!-- Google Font Inter -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        [x-cloak] { display: none !important; }
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: #0f172a; }
+        ::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #475569; }
+        
+        .handsontable { font-size: 12px; font-family: 'Inter', sans-serif; color: #f8fafc; }
+        .handsontable th { background-color: #020617 !important; color: #94a3b8 !important; border-color: #334155 !important; font-weight: 600; }
+        .handsontable td { background-color: #0f172a !important; color: #f8fafc !important; border-color: #1e293b !important; }
+        .handsontable tr:hover td { background-color: #1e293b !important; }
+        .handsontableInputHolder textarea { background-color: #1e293b !important; color: #ffffff !important; border: 1px solid #6366f1 !important; }
+    </style>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen flex flex-col antialiased" x-data="rojasItSystem()" x-init="initApp()">
+
+    <!-- TOP HEADER BAR -->
+    <header class="bg-slate-900 border-b border-slate-800 sticky top-0 z-40 shadow-md">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3 flex flex-col sm:flex-row items-center justify-between gap-3">
+            <div class="flex items-center space-x-3 w-full sm:w-auto justify-between sm:justify-start">
+                <div class="flex items-center space-x-3">
+                    <div class="bg-gradient-to-tr from-amber-500 to-indigo-600 p-2.5 rounded-xl shadow-lg">
+                        <i data-lucide="shield-check" class="w-6 h-6 text-white"></i>
+                    </div>
+                    <div>
+                        <h1 class="text-lg font-extrabold text-white tracking-tight leading-none">Rojas Hermanos S.A.S.</h1>
+                        <p class="text-xs text-amber-400 font-semibold tracking-wide uppercase mt-0.5">Control & Inventario TI — 2026</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Role Selector & Status -->
+            <div class="flex items-center gap-3 w-full sm:w-auto justify-end flex-wrap">
+                <button @click="showCloudModal = true" class="px-2.5 py-1.5 rounded-lg text-xs font-medium border flex items-center gap-1.5 transition-colors"
+                        :class="cloudConnected ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30' : 'bg-amber-500/10 text-amber-400 border-amber-500/30'">
+                    <i data-lucide="cloud" class="w-3.5 h-3.5"></i>
+                    <span x-text="cloudConnected ? 'Nube Conectada' : 'Modo Local (Configurar Nube)'"></span>
+                </button>
+
+                <!-- Admin Password Master Toggle Badge -->
+                <template x-if="currentRole === 'admin'">
+                    <button @click="toggleGlobalPassVisibility()" class="px-2.5 py-1.5 rounded-lg text-xs font-bold border flex items-center gap-1.5 transition-all shadow-sm"
+                            :class="globalShowPass ? 'bg-amber-500/20 text-amber-300 border-amber-500/40 hover:bg-amber-500/30' : 'bg-indigo-500/20 text-indigo-300 border-indigo-500/40 hover:bg-indigo-500/30'">
+                        <i data-lucide="key-round" class="w-3.5 h-3.5"></i>
+                        <span x-text="globalShowPass ? 'Ocultar Claves (Admin)' : ' Revelar Todas las Claves'"></span>
+                    </button>
+                </template>
+
+                <div class="flex items-center space-x-2 bg-slate-950/80 px-3 py-1.5 rounded-lg border border-slate-800 text-xs">
+                    <i data-lucide="user-check" class="w-4 h-4 text-indigo-400"></i>
+                    <span class="text-slate-400 hidden md:inline">Rol Activo:</span>
+                    <select x-model="currentRole" @change="handleRoleChange()" class="bg-transparent font-semibold text-indigo-300 focus:outline-none cursor-pointer">
+                        <option value="admin" class="bg-slate-900 text-white">Administrador (Sistemas)</option>
+                        <option value="director" class="bg-slate-900 text-white">Director (Consulta + Reportes)</option>
+                        <option value="spectator" class="bg-slate-900 text-white">Espectador (Solo Lectura)</option>
+                    </select>
+                </div>
+
+                <button @click="resetToInitialData()" title="Restablecer datos originales" class="p-2 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded-lg border border-slate-700 transition-colors text-xs flex items-center gap-1.5">
+                    <i data-lucide="rotate-ccw" class="w-4 h-4 text-amber-400"></i>
+                    <span class="hidden md:inline">Reset</span>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- BODY WRAPPER -->
+    <div class="flex-1 flex flex-col md:flex-row max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 gap-6">
+
+        <!-- SIDEBAR -->
+        <aside class="w-full md:w-64 flex-shrink-0 space-y-2">
+            <div class="bg-slate-900 p-3 rounded-xl border border-slate-800 shadow-sm space-y-1">
+                <button @click="setTab('dashboard')" :class="currentTab === 'dashboard' ? 'bg-indigo-600 text-white font-semibold' : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'" class="w-full flex items-center space-x-3 px-3.5 py-2.5 rounded-lg text-sm transition-all">
+                    <i data-lucide="layout-dashboard" class="w-4 h-4"></i>
+                    <span>Resumen Ejecutivo</span>
+                </button>
+
+                <button @click="setTab('equipos')" :class="currentTab === 'equipos' ? 'bg-indigo-600 text-white font-semibold' : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'" class="w-full flex items-center space-x-3 px-3.5 py-2.5 rounded-lg text-sm transition-all">
+                    <i data-lucide="monitor" class="w-4 h-4"></i>
+                    <span>Computadores & Servidores</span>
+                </button>
+
+                <button @click="setTab('celulares')" :class="currentTab === 'celulares' ? 'bg-indigo-600 text-white font-semibold' : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'" class="w-full flex items-center space-x-3 px-3.5 py-2.5 rounded-lg text-sm transition-all">
+                    <i data-lucide="smartphone" class="w-4 h-4"></i>
+                    <span>Celulares Corporativos</span>
+                </button>
+
+                <button @click="setTab('impresoras')" :class="currentTab === 'impresoras' ? 'bg-indigo-600 text-white font-semibold' : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'" class="w-full flex items-center space-x-3 px-3.5 py-2.5 rounded-lg text-sm transition-all">
+                    <i data-lucide="printer" class="w-4 h-4 text-amber-400"></i>
+                    <span>Impresoras & Historial</span>
+                </button>
+
+                <button @click="setTab('toner')" :class="currentTab === 'toner' ? 'bg-indigo-600 text-white font-semibold' : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'" class="w-full flex items-center space-x-3 px-3.5 py-2.5 rounded-lg text-sm transition-all">
+                    <i data-lucide="droplet" class="w-4 h-4 text-cyan-400"></i>
+                    <span>Control & Recargas Tóner</span>
+                </button>
+
+                <button @click="setTab('licenciasOffice')" :class="currentTab === 'licenciasOffice' ? 'bg-indigo-600 text-white font-semibold' : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'" class="w-full flex items-center space-x-3 px-3.5 py-2.5 rounded-lg text-sm transition-all">
+                    <i data-lucide="file-spreadsheet" class="w-4 h-4 text-blue-400"></i>
+                    <span>Licencias Office 365</span>
+                </button>
+
+                <button @click="setTab('licenciasAntivirus')" :class="currentTab === 'licenciasAntivirus' ? 'bg-indigo-600 text-white font-semibold' : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'" class="w-full flex items-center space-x-3 px-3.5 py-2.5 rounded-lg text-sm transition-all">
+                    <i data-lucide="shield-alert" class="w-4 h-4 text-emerald-400"></i>
+                    <span>Licencias Antivirus</span>
+                </button>
+
+                <button x-show="currentRole !== 'spectator'" @click="setTab('boveda')" :class="currentTab === 'boveda' ? 'bg-indigo-600 text-white font-semibold' : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'" class="w-full flex items-center space-x-3 px-3.5 py-2.5 rounded-lg text-sm transition-all">
+                    <i data-lucide="key" class="w-4 h-4"></i>
+                    <span>Bóveda de Accesos</span>
+                </button>
+
+                <button @click="setTab('excelEditor')" :class="currentTab === 'excelEditor' ? 'bg-emerald-600 text-white font-semibold' : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'" class="w-full flex items-center space-x-3 px-3.5 py-2.5 rounded-lg text-sm transition-all">
+                    <i data-lucide="sheet" class="w-4 h-4 text-emerald-400"></i>
+                    <span>Hoja Excel / Editor Web</span>
+                </button>
+
+                <button @click="setTab('danados')" :class="currentTab === 'danados' ? 'bg-indigo-600 text-white font-semibold' : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'" class="w-full flex items-center justify-between px-3.5 py-2.5 rounded-lg text-sm transition-all">
+                    <div class="flex items-center space-x-3">
+                        <i data-lucide="alert-triangle" class="w-4 h-4 text-red-400"></i>
+                        <span>Equipos Dañados / Bajas</span>
+                    </div>
+                    <span class="bg-red-500/20 text-red-400 text-xs font-bold px-2 py-0.5 rounded-full" x-text="countDamagedTotal()"></span>
+                </button>
+            </div>
+        </aside>
+
+        <!-- MAIN CONTENT AREA -->
+        <main class="flex-1 overflow-x-hidden space-y-6">
+
+            <!-- 📊 TAB 1: DASHBOARD -->
+            <section x-show="currentTab === 'dashboard'" class="space-y-6" x-cloak>
+                <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 border-b border-slate-800 pb-4">
+                    <div>
+                        <h2 class="text-xl font-bold text-white tracking-tight">Panel de Resumen Ejecutivo</h2>
+                        <p class="text-xs text-slate-400">Estado general de infraestructura, valorización de activos y licencias en Rojas Hermanos S.A.S.</p>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                    <div class="bg-slate-900 border border-slate-800 rounded-xl p-4 shadow-sm">
+                        <span class="text-xs font-semibold uppercase tracking-wider text-slate-400">Valor Total Inventario TI</span>
+                        <h3 class="text-2xl font-extrabold text-emerald-400 mt-1" x-text="formatCurrency(calculateTotalInventoryValue())">$0</h3>
+                        <p class="text-xs text-slate-400 mt-2">Equipos computacionales activos</p>
+                    </div>
+
+                    <div class="bg-slate-900 border border-slate-800 rounded-xl p-4 shadow-sm">
+                        <span class="text-xs font-semibold uppercase tracking-wider text-slate-400">Total Computadores</span>
+                        <h3 class="text-2xl font-extrabold text-white mt-1" x-text="equipos.length">0</h3>
+                        <p class="text-xs text-slate-400 mt-2" x-text="`${equipos.filter(e => e.sacarInventario !== 'SI').length} Operativos`"></p>
+                    </div>
+
+                    <div class="bg-slate-900 border border-slate-800 rounded-xl p-4 shadow-sm">
+                        <span class="text-xs font-semibold uppercase tracking-wider text-slate-400">Licencias Office Libres</span>
+                        <h3 class="text-2xl font-extrabold text-blue-400 mt-1" x-text="getOfficeAvailableCount()">0</h3>
+                        <p class="text-xs text-slate-400 mt-2" x-text="`De ${officeTotalContratadas} contratadas`"></p>
+                    </div>
+
+                    <div class="bg-slate-900 border border-slate-800 rounded-xl p-4 shadow-sm">
+                        <span class="text-xs font-semibold uppercase tracking-wider text-slate-400">Licencias Antivirus Libres</span>
+                        <h3 class="text-2xl font-extrabold text-emerald-400 mt-1" x-text="getAntivirusAvailableCount()">0</h3>
+                        <p class="text-xs text-slate-400 mt-2" x-text="`De ${antivirusTotalContratadas} Kaspersky contratadas`"></p>
+                    </div>
+                </div>
+            </section>
+
+            <!-- 💻 TAB 2: COMPUTADORES -->
+            <section x-show="currentTab === 'equipos'" class="space-y-4" x-cloak>
+                <div class="flex flex-col md:flex-row justify-between md:items-center gap-3 border-b border-slate-800 pb-3">
+                    <div>
+                        <h2 class="text-xl font-bold text-white">Inventario de Computadores y Servidores</h2>
+                        <p class="text-xs text-slate-400">Control de seriales, especificaciones técnicas, sedes, áreas y responsables.</p>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <template x-if="currentRole === 'admin'">
+                            <button @click="openEquipoModal()" class="bg-indigo-600 hover:bg-indigo-500 text-white px-3.5 py-2 rounded-lg text-xs font-semibold flex items-center gap-1.5 shadow-md">
+                                <i data-lucide="plus-circle" class="w-4 h-4"></i> Nuevo Equipo
+                            </button>
+                        </template>
+                        <button @click="exportEquiposCSV()" class="bg-slate-800 hover:bg-slate-700 text-slate-200 px-3.5 py-2 rounded-lg text-xs font-medium border border-slate-700 flex items-center gap-1.5">
+                            <i data-lucide="download" class="w-4 h-4 text-emerald-400"></i> Descargar CSV
+                        </button>
+                    </div>
+                </div>
+
+                <div class="bg-slate-900 p-3 rounded-xl border border-slate-800 flex flex-wrap gap-3 items-center justify-between">
+                    <div class="relative flex-1 min-w-[200px]">
+                        <i data-lucide="search" class="w-4 h-4 absolute left-3 top-2.5 text-slate-400"></i>
+                        <input type="text" x-model="searchEquipo" placeholder="Buscar ID (PC-VS01), Serie, Usuario..." class="w-full bg-slate-950 border border-slate-800 rounded-lg pl-9 pr-3 py-1.5 text-xs text-white focus:outline-none">
+                    </div>
+                </div>
+
+                <div class="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden shadow-sm">
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-xs text-left text-slate-300">
+                            <thead class="text-[11px] uppercase bg-slate-950 text-slate-400 font-semibold border-b border-slate-800">
+                                <tr>
+                                    <th class="p-3">ID Equipo</th>
+                                    <th class="p-3">Tipo / Marca / Modelo</th>
+                                    <th class="p-3">Hardware Spec</th>
+                                    <th class="p-3">Sede & Ubicación</th>
+                                    <th class="p-3">Área / Responsable</th>
+                                    <th class="p-3">Valor COP</th>
+                                    <th class="p-3">Estado</th>
+                                    <th x-show="currentRole === 'admin'" class="p-3 text-right">Acciones</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-slate-800/60">
+                                <template x-for="eq in filteredEquipos" :key="eq.idEquipo">
+                                    <tr class="hover:bg-slate-800/40">
+                                        <td class="p-3 font-bold text-indigo-400 whitespace-nowrap" x-text="eq.idEquipo"></td>
+                                        <td class="p-3">
+                                            <div class="font-bold text-white" x-text="`${eq.marca} ${eq.modelo}`"></div>
+                                            <div class="text-[10px] text-slate-400" x-text="`S/N: ${eq.numSerie || 'N/A'}`"></div>
+                                        </td>
+                                        <td class="p-3">
+                                            <div class="text-slate-200" x-text="`${eq.procesador || 'N/A'}`"></div>
+                                            <div class="text-[10px] text-slate-400" x-text="`RAM: ${eq.ram || 'N/A'} | Disco: ${eq.almacenamiento || 'N/A'}`"></div>
+                                        </td>
+                                        <td class="p-3">
+                                            <span class="bg-slate-800 text-slate-300 text-[10px] px-1.5 py-0.5 rounded border border-slate-700" x-text="eq.sede"></span>
+                                            <div class="text-[10px] text-slate-400 mt-0.5" x-text="eq.ubicacion || 'General'"></div>
+                                        </td>
+                                        <td class="p-3">
+                                            <div class="font-medium text-slate-200" x-text="eq.responsable || 'Sin Asignar'"></div>
+                                            <div class="text-[10px] text-slate-400" x-text="eq.area"></div>
+                                        </td>
+                                        <td class="p-3 font-semibold text-emerald-400 whitespace-nowrap" x-text="formatCurrency(eq.valorCop)"></td>
+                                        <td class="p-3 whitespace-nowrap">
+                                            <span class="px-2 py-0.5 text-[10px] font-bold rounded-full"
+                                                :class="eq.sacarInventario === 'SI' || eq.estado === 'Dado de baja' ? 'bg-red-500/10 text-red-400 border border-red-500/20' : 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'"
+                                                x-text="eq.sacarInventario === 'SI' ? 'Baja (Dañado)' : eq.estado"></span>
+                                        </td>
+                                        <td x-show="currentRole === 'admin'" class="p-3 text-right space-x-1 whitespace-nowrap">
+                                            <button @click="editEquipo(eq)" class="p-1 text-slate-400 hover:text-indigo-400"><i data-lucide="edit" class="w-3.5 h-3.5"></i></button>
+                                            <button @click="deleteEquipo(eq.idEquipo)" class="p-1 text-slate-400 hover:text-red-400"><i data-lucide="trash-2" class="w-3.5 h-3.5"></i></button>
+                                        </td>
+                                    </tr>
+                                </template>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+            <!-- 📱 TAB 3: CELULARES CORPORATIVOS (CON CLAVES VISIBLES PARA ADMIN) -->
+            <section x-show="currentTab === 'celulares'" class="space-y-4" x-cloak>
+                <div class="flex justify-between items-center border-b border-slate-800 pb-3">
+                    <div>
+                        <h2 class="text-xl font-bold text-white">Inventario de Celulares Corporativos</h2>
+                        <p class="text-xs text-slate-400">Asignación de equipos móviles, IMEIs, números de contacto y claves de desbloqueo.</p>
+                    </div>
+                    <button @click="exportCelularesCSV()" class="bg-slate-800 hover:bg-slate-700 text-slate-200 px-3.5 py-2 rounded-lg text-xs font-medium border border-slate-700 flex items-center gap-1.5">
+                        <i data-lucide="download" class="w-4 h-4 text-emerald-400"></i> Descargar CSV
+                    </button>
+                </div>
+
+                <div class="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden shadow-sm">
+                    <table class="w-full text-xs text-left text-slate-300">
+                        <thead class="text-[11px] uppercase bg-slate-950 text-slate-400 font-semibold border-b border-slate-800">
+                            <tr>
+                                <th class="p-3">No.</th>
+                                <th class="p-3">Sede</th>
+                                <th class="p-3">Dispositivo / Modelo</th>
+                                <th class="p-3">IMEI 1 / S/N</th>
+                                <th class="p-3">Responsable & Área</th>
+                                <th class="p-3">Teléfono</th>
+                                <th class="p-3">Clave/Patrón</th>
+                                <th class="p-3">Estado</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-slate-800/60">
+                            <template x-for="cel in celulares" :key="cel.no">
+                                <tr class="hover:bg-slate-800/40">
+                                    <td class="p-3 font-bold text-slate-400" x-text="cel.no"></td>
+                                    <td class="p-3"><span class="bg-slate-800 text-slate-300 text-[10px] px-1.5 py-0.5 rounded" x-text="cel.sede"></span></td>
+                                    <td class="p-3 font-bold text-white" x-text="cel.descripcionModelo"></td>
+                                    <td class="p-3 font-mono text-[11px] text-slate-300" x-text="cel.imei1"></td>
+                                    <td class="p-3">
+                                        <div class="font-medium text-slate-200" x-text="cel.responsable"></div>
+                                        <div class="text-[10px] text-slate-400" x-text="cel.area"></div>
+                                    </td>
+                                    <td class="p-3 font-mono text-purple-300" x-text="cel.telefono || 'Sin chip'"></td>
+                                    <td class="p-3 font-mono font-bold">
+                                        <div class="flex items-center gap-1">
+                                            <span class="text-amber-400" x-text="getVisibleValue(cel.clavePatron)"></span>
+                                            <template x-if="currentRole === 'admin' && cel.clavePatron">
+                                                <button @click="copyToClipboard(cel.clavePatron)" title="Copiar Clave" class="p-1 text-slate-400 hover:text-white"><i data-lucide="copy" class="w-3.5 h-3.5"></i></button>
+                                            </template>
+                                        </div>
+                                    </td>
+                                    <td class="p-3">
+                                        <span class="px-2 py-0.5 text-[10px] font-bold rounded-full"
+                                            :class="cel.sacarInventario === 'SI' ? 'bg-red-500/10 text-red-400 border border-red-500/20' : 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'"
+                                            x-text="cel.sacarInventario === 'SI' ? 'Dado de Baja' : 'Activo'"></span>
+                                    </td>
+                                </tr>
+                            </template>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <!-- 🖨️ TAB 4: IMPRESORAS -->
+            <section x-show="currentTab === 'impresoras'" class="space-y-4" x-cloak>
+                <div class="border-b border-slate-800 pb-3 flex justify-between items-center">
+                    <div>
+                        <h2 class="text-xl font-bold text-white">Gestión de Impresoras, Mantenimientos & Traslados</h2>
+                        <p class="text-xs text-slate-400">Seleccione una impresora para gestionar sus reparaciones u operaciones de traslado.</p>
+                    </div>
+                </div>
+
+                <div x-show="!selectedPrinter" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    <template x-for="imp in impresoras" :key="imp.idImpresora">
+                        <div class="bg-slate-900 border border-slate-800 hover:border-slate-700 rounded-xl p-5 flex flex-col justify-between space-y-4 shadow-sm transition-all">
+                            <div>
+                                <div class="flex justify-between items-start">
+                                    <span class="text-xs font-extrabold text-amber-400 bg-amber-400/10 px-2 py-0.5 rounded border border-amber-400/20" x-text="imp.idImpresora"></span>
+                                    <span class="bg-slate-800 text-slate-300 text-[10px] px-2 py-0.5 rounded border border-slate-700" x-text="imp.sede"></span>
+                                </div>
+                                <h3 class="font-bold text-white text-base mt-2" x-text="imp.referencia"></h3>
+                                <p class="text-xs text-slate-400 mt-1" x-text="`Depto: ${imp.departamento} | Ubic.: ${imp.ubicacion}`"></p>
+                            </div>
+
+                            <div class="border-t border-slate-800 pt-3 flex items-center justify-between">
+                                <span class="px-2 py-0.5 text-[10px] font-bold rounded-full"
+                                    :class="imp.sacarInventario === 'SI' ? 'bg-red-500/10 text-red-400 border border-red-500/20' : 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'"
+                                    x-text="imp.sacarInventario === 'SI' ? 'Fuera de Servicio' : 'Operativa'"></span>
+
+                                <button @click="selectPrinterView(imp)" class="bg-indigo-600/20 hover:bg-indigo-600 text-indigo-300 hover:text-white px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors flex items-center gap-1 border border-indigo-500/30">
+                                    <i data-lucide="file-text" class="w-3.5 h-3.5"></i> Ver Ficha e Historial
+                                </button>
+                            </div>
+                        </div>
+                    </template>
+                </div>
+            </section>
+
+            <!-- 💧 TAB 5: CONTROL DE TÓNERES -->
+            <section x-show="currentTab === 'toner'" class="space-y-4" x-cloak>
+                <div class="flex flex-col md:flex-row justify-between md:items-center gap-3 border-b border-slate-800 pb-3">
+                    <div>
+                        <h2 class="text-xl font-bold text-white">Módulo de Tóneres y Recargas</h2>
+                        <p class="text-xs text-slate-400">Control mensual de compras, recargas y reportes de consumo en COP.</p>
+                    </div>
+                </div>
+
+                <div class="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden shadow-sm">
+                    <table class="w-full text-xs text-left text-slate-300">
+                        <thead class="text-[11px] uppercase bg-slate-950 text-slate-400 border-b border-slate-800">
+                            <tr>
+                                <th class="p-3">Fecha</th>
+                                <th class="p-3">Ref. Tóner</th>
+                                <th class="p-3">Impresora Asignada</th>
+                                <th class="p-3">Sede</th>
+                                <th class="p-3">Valor COP</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-slate-800/60">
+                            <template x-for="rec in recargasToner" :key="rec.id">
+                                <tr class="hover:bg-slate-800/40">
+                                    <td class="p-3 font-medium text-white" x-text="rec.fecha"></td>
+                                    <td class="p-3 font-bold text-cyan-400" x-text="rec.idToner"></td>
+                                    <td class="p-3 text-slate-200" x-text="rec.idImpresora"></td>
+                                    <td class="p-3" x-text="rec.sede"></td>
+                                    <td class="p-3 font-bold text-emerald-400" x-text="formatCurrency(rec.valorCop)"></td>
+                                </tr>
+                            </template>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <!-- 📑 TAB 6: LICENCIAS OFFICE 365 -->
+            <section x-show="currentTab === 'licenciasOffice'" class="space-y-4" x-cloak>
+                <div class="flex flex-col md:flex-row justify-between md:items-center gap-3 border-b border-slate-800 pb-3">
+                    <div>
+                        <h2 class="text-xl font-bold text-white flex items-center gap-2">
+                            <i data-lucide="file-spreadsheet" class="w-5 h-5 text-blue-400"></i> Gestión de Licencias Office / Microsoft 365
+                        </h2>
+                        <p class="text-xs text-slate-400">Control de suscripciones, cuentas asignadas, sedes y disponibilidad en tiempo real.</p>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                    <div class="bg-slate-900 border border-slate-800 rounded-xl p-4 flex items-center justify-between">
+                        <div>
+                            <span class="text-xs font-semibold uppercase text-slate-400">Total Contratadas</span>
+                            <div class="flex items-center gap-2 mt-1">
+                                <input type="number" x-model.number="officeTotalContratadas" @change="saveData()" class="bg-slate-950 border border-slate-800 text-xl font-extrabold text-white w-20 px-2 py-0.5 rounded focus:outline-none">
+                            </div>
+                        </div>
+                        <i data-lucide="layers" class="w-8 h-8 text-blue-400/40"></i>
+                    </div>
+
+                    <div class="bg-slate-900 border border-slate-800 rounded-xl p-4 flex items-center justify-between">
+                        <div>
+                            <span class="text-xs font-semibold uppercase text-slate-400">En Uso / Asignadas</span>
+                            <h3 class="text-2xl font-extrabold text-amber-400 mt-1" x-text="licenciasOffice.length">0</h3>
+                        </div>
+                        <i data-lucide="user-check" class="w-8 h-8 text-amber-400/40"></i>
+                    </div>
+
+                    <div class="bg-slate-900 border border-slate-800 rounded-xl p-4 flex items-center justify-between">
+                        <div>
+                            <span class="text-xs font-semibold uppercase text-slate-400">Disponibles / Libres</span>
+                            <h3 class="text-2xl font-extrabold text-emerald-400 mt-1" x-text="getOfficeAvailableCount()">0</h3>
+                        </div>
+                        <i data-lucide="check-circle" class="w-8 h-8 text-emerald-400/40"></i>
+                    </div>
+                </div>
+
+                <div class="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden shadow-sm">
+                    <table class="w-full text-xs text-left text-slate-300">
+                        <thead class="text-[11px] uppercase bg-slate-950 text-slate-400 font-semibold border-b border-slate-800">
+                            <tr>
+                                <th class="p-3">N°</th>
+                                <th class="p-3">N° Licencias</th>
+                                <th class="p-3">Nombre Licencia</th>
+                                <th class="p-3">Usuario / Correo</th>
+                                <th class="p-3">Plan</th>
+                                <th class="p-3">Departamento</th>
+                                <th class="p-3">Sede</th>
+                                <th class="p-3">Responsable</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-slate-800/60">
+                            <template x-for="(lic, index) in licenciasOffice" :key="lic.id || index">
+                                <tr class="hover:bg-slate-800/40">
+                                    <td class="p-3 font-bold text-slate-400" x-text="index + 1"></td>
+                                    <td class="p-3 font-bold text-blue-400" x-text="lic.numLicencia || '1'"></td>
+                                    <td class="p-3 font-bold text-white" x-text="lic.nombreLicencia"></td>
+                                    <td class="p-3 font-mono text-indigo-300" x-text="lic.usuarioCorreo"></td>
+                                    <td class="p-3"><span class="bg-blue-500/10 text-blue-300 px-2 py-0.5 rounded border border-blue-500/20" x-text="lic.planLicencia"></span></td>
+                                    <td class="p-3" x-text="lic.departamento"></td>
+                                    <td class="p-3"><span class="bg-slate-800 text-slate-300 text-[10px] px-1.5 py-0.5 rounded" x-text="lic.sede"></span></td>
+                                    <td class="p-3 text-slate-200" x-text="lic.responsable"></td>
+                                </tr>
+                            </template>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <!-- 🛡️ TAB 7: LICENCIAS ANTIVIRUS KASPERSKY (CON CLAVES VISIBLES PARA ADMIN) -->
+            <section x-show="currentTab === 'licenciasAntivirus'" class="space-y-4" x-cloak>
+                <div class="bg-slate-900 border border-slate-800 rounded-xl p-5 shadow-sm space-y-3">
+                    <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+                        <div class="flex items-center space-x-3">
+                            <div class="p-2.5 bg-emerald-500/10 rounded-xl border border-emerald-500/20 text-emerald-400">
+                                <i data-lucide="shield-alert" class="w-6 h-6"></i>
+                            </div>
+                            <div>
+                                <h3 class="text-base font-bold text-white">Portal de Administración Kaspersky Security Center</h3>
+                                <p class="text-xs text-slate-400">Credenciales de acceso para la consola de administración del antivirus.</p>
+                            </div>
+                        </div>
+                        <a href="https://ksc.kaspersky.com" target="_blank" class="bg-emerald-600 hover:bg-emerald-500 text-white px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors">
+                            <i data-lucide="external-link" class="w-3.5 h-3.5"></i> Abrir Portal Kaspersky
+                        </a>
+                    </div>
+
+                    <div class="bg-slate-950 p-3 rounded-lg border border-slate-800 grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
+                        <div>
+                            <span class="text-slate-400 block mb-0.5">Usuario Principal Portal:</span>
+                            <span class="font-mono text-white font-bold" x-text="kasperskyAccount.usuario"></span>
+                        </div>
+                        <div>
+                            <span class="text-slate-400 block mb-0.5">Contraseña de Acceso Portal:</span>
+                            <div class="flex items-center gap-2">
+                                <span class="font-mono text-emerald-400 font-bold" x-text="getVisibleValue(kasperskyAccount.clave)"></span>
+                                <template x-if="currentRole === 'admin'">
+                                    <button @click="copyToClipboard(kasperskyAccount.clave)" title="Copiar Clave" class="p-1 text-slate-400 hover:text-white"><i data-lucide="copy" class="w-3.5 h-3.5"></i></button>
+                                </template>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden shadow-sm">
+                    <table class="w-full text-xs text-left text-slate-300">
+                        <thead class="text-[11px] uppercase bg-slate-950 text-slate-400 font-semibold border-b border-slate-800">
+                            <tr>
+                                <th class="p-3">N°</th>
+                                <th class="p-3">ID Equipo</th>
+                                <th class="p-3">Equipo / Modelo</th>
+                                <th class="p-3">Departamento</th>
+                                <th class="p-3">Sede</th>
+                                <th class="p-3">Responsable</th>
+                                <th class="p-3">Estado</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-slate-800/60">
+                            <template x-for="(kas, index) in licenciasKaspersky" :key="kas.id || index">
+                                <tr class="hover:bg-slate-800/40">
+                                    <td class="p-3 font-bold text-slate-400" x-text="index + 1"></td>
+                                    <td class="p-3 font-bold text-indigo-400 font-mono" x-text="kas.idEquipo"></td>
+                                    <td class="p-3 font-bold text-white" x-text="kas.equipoModelo"></td>
+                                    <td class="p-3 text-slate-300" x-text="kas.departamento"></td>
+                                    <td class="p-3"><span class="bg-slate-800 text-slate-300 text-[10px] px-1.5 py-0.5 rounded" x-text="kas.sede"></span></td>
+                                    <td class="p-3 text-slate-200" x-text="kas.responsable"></td>
+                                    <td class="p-3 whitespace-nowrap">
+                                        <span class="px-2 py-0.5 text-[10px] font-bold rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20" x-text="kas.estado"></span>
+                                    </td>
+                                </tr>
+                            </template>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <!-- 🔑 TAB 8: BÓVEDA DE ACCESOS DETALLADA (TODAS LAS CLAVES VISIBLES PARA ADMIN) -->
+            <section x-show="currentTab === 'boveda' && currentRole !== 'spectator'" class="space-y-4" x-cloak>
+                <div class="border-b border-slate-800 pb-3 flex justify-between items-center flex-wrap gap-2">
+                    <div>
+                        <h2 class="text-xl font-bold text-white">Bóveda de Accesos, DVRs, Wi-Fi & Portales</h2>
+                        <p class="text-xs text-slate-400">Directorio unificado de claves de infraestructura, redes y plataformas.</p>
+                    </div>
+
+                    <template x-if="currentRole === 'admin'">
+                        <button @click="toggleGlobalPassVisibility()" class="bg-indigo-600 hover:bg-indigo-500 text-white px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 shadow">
+                            <i data-lucide="eye" class="w-4 h-4"></i>
+                            <span x-text="globalShowPass ? 'Ocultar Todas las Claves' : 'Mostrar Todas las Claves (Admin)'"></span>
+                        </button>
+                    </template>
+                </div>
+
+                <!-- Sub-tabs for Bóveda -->
+                <div class="flex gap-2 border-b border-slate-800 pb-2 overflow-x-auto text-xs">
+                    <button @click="bovedaSubTab = 'dvrs'" :class="bovedaSubTab === 'dvrs' ? 'bg-indigo-600 text-white font-semibold' : 'text-slate-400 hover:bg-slate-800'" class="px-3 py-1.5 rounded-lg transition-colors">DVRs / CCTV</button>
+                    <button @click="bovedaSubTab = 'wifi'" :class="bovedaSubTab === 'wifi' ? 'bg-indigo-600 text-white font-semibold' : 'text-slate-400 hover:bg-slate-800'" class="px-3 py-1.5 rounded-lg transition-colors">Redes Wi-Fi & Routers</button>
+                    <button @click="bovedaSubTab = 'cuentas'" :class="bovedaSubTab === 'cuentas' ? 'bg-indigo-600 text-white font-semibold' : 'text-slate-400 hover:bg-slate-800'" class="px-3 py-1.5 rounded-lg transition-colors">Cuentas (Gmail/Gateway/Otros)</button>
+                </div>
+
+                <!-- DVRs Table -->
+                <div x-show="bovedaSubTab === 'dvrs'" class="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden shadow-sm">
+                    <table class="w-full text-xs text-left text-slate-300">
+                        <thead class="text-[11px] uppercase bg-slate-950 text-slate-400 font-semibold border-b border-slate-800">
+                            <tr>
+                                <th class="p-3">Dispositivo</th>
+                                <th class="p-3">Dirección IP</th>
+                                <th class="p-3">Usuario / Clave Admin</th>
+                                <th class="p-3">Sede</th>
+                                <th class="p-3">P2P / Serial</th>
+                                <th class="p-3">Patrón</th>
+                                <th class="p-3">Almacenamiento</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-slate-800/60">
+                            <template x-for="dvr in bovedaDvrs" :key="dvr.id">
+                                <tr class="hover:bg-slate-800/40">
+                                    <td class="p-3 font-bold text-white" x-text="dvr.dispositivo"></td>
+                                    <td class="p-3 font-mono text-indigo-300" x-text="dvr.direccion"></td>
+                                    <td class="p-3">
+                                        <div class="text-slate-200" x-text="`Usu: ${dvr.usuario}`"></div>
+                                        <div class="flex items-center gap-1.5 mt-0.5">
+                                            <span class="text-amber-400 font-mono font-bold" x-text="getVisibleValue(dvr.clave)"></span>
+                                            <template x-if="currentRole === 'admin'">
+                                                <button @click="copyToClipboard(dvr.clave)" title="Copiar Clave" class="p-1 text-slate-400 hover:text-white"><i data-lucide="copy" class="w-3.5 h-3.5"></i></button>
+                                            </template>
+                                        </div>
+                                    </td>
+                                    <td class="p-3"><span class="bg-slate-800 text-slate-300 text-[10px] px-1.5 py-0.5 rounded" x-text="dvr.sede"></span></td>
+                                    <td class="p-3 font-mono text-slate-400" x-text="dvr.p2p || 'N/A'"></td>
+                                    <td class="p-3 font-mono text-slate-400" x-text="getVisibleValue(dvr.patron)"></td>
+                                    <td class="p-3 text-emerald-400 font-semibold" x-text="dvr.almacenamiento || '1 TB'"></td>
+                                </tr>
+                            </template>
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- Wi-Fi Table -->
+                <div x-show="bovedaSubTab === 'wifi'" class="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden shadow-sm">
+                    <table class="w-full text-xs text-left text-slate-300">
+                        <thead class="text-[11px] uppercase bg-slate-950 text-slate-400 font-semibold border-b border-slate-800">
+                            <tr>
+                                <th class="p-3">N° / Sede</th>
+                                <th class="p-3">Referencia Módem / Router</th>
+                                <th class="p-3">Nombre Red (SSID)</th>
+                                <th class="p-3">Clave Wi-Fi</th>
+                                <th class="p-3">Usuario Router</th>
+                                <th class="p-3">Clave Admin Router</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-slate-800/60">
+                            <template x-for="w in bovedaWifi" :key="w.id">
+                                <tr class="hover:bg-slate-800/40">
+                                    <td class="p-3 font-bold text-white" x-text="`${w.numero} — ${w.sede}`"></td>
+                                    <td class="p-3 text-slate-300" x-text="w.referencia"></td>
+                                    <td class="p-3 font-bold text-indigo-300" x-text="w.red"></td>
+                                    <td class="p-3 font-mono">
+                                        <div class="flex items-center gap-1.5">
+                                            <span class="text-amber-400 font-bold" x-text="getVisibleValue(w.claveWifi)"></span>
+                                            <template x-if="currentRole === 'admin'">
+                                                <button @click="copyToClipboard(w.claveWifi)" title="Copiar Clave Wi-Fi" class="p-1 text-slate-400 hover:text-white"><i data-lucide="copy" class="w-3.5 h-3.5"></i></button>
+                                            </template>
+                                        </div>
+                                    </td>
+                                    <td class="p-3 text-slate-200" x-text="w.usuarioRouter"></td>
+                                    <td class="p-3 font-mono">
+                                        <div class="flex items-center gap-1.5">
+                                            <span class="text-cyan-400 font-bold" x-text="getVisibleValue(w.claveRouter)"></span>
+                                            <template x-if="currentRole === 'admin'">
+                                                <button @click="copyToClipboard(w.claveRouter)" title="Copiar Clave Router" class="p-1 text-slate-400 hover:text-white"><i data-lucide="copy" class="w-3.5 h-3.5"></i></button>
+                                            </template>
+                                        </div>
+                                    </td>
+                                </tr>
+                            </template>
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- Cuentas Libres Table -->
+                <div x-show="bovedaSubTab === 'cuentas'" class="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden shadow-sm">
+                    <table class="w-full text-xs text-left text-slate-300">
+                        <thead class="text-[11px] uppercase bg-slate-950 text-slate-400 font-semibold border-b border-slate-800">
+                            <tr>
+                                <th class="p-3">Servicio / Portal</th>
+                                <th class="p-3">Categoría</th>
+                                <th class="p-3">Usuario / Correo</th>
+                                <th class="p-3">Contraseña</th>
+                                <th class="p-3">URL / Dirección</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-slate-800/60">
+                            <template x-for="c in bovedaCuentas" :key="c.id">
+                                <tr class="hover:bg-slate-800/40">
+                                    <td class="p-3 font-bold text-white" x-text="c.servicio"></td>
+                                    <td class="p-3"><span class="bg-indigo-500/10 text-indigo-300 px-2 py-0.5 rounded border border-indigo-500/20" x-text="c.categoria"></span></td>
+                                    <td class="p-3 font-mono text-slate-200" x-text="c.usuario"></td>
+                                    <td class="p-3 font-mono">
+                                        <div class="flex items-center gap-1.5">
+                                            <span class="text-amber-400 font-bold" x-text="getVisibleValue(c.clave)"></span>
+                                            <template x-if="currentRole === 'admin'">
+                                                <button @click="copyToClipboard(c.clave)" title="Copiar Clave" class="p-1 text-slate-400 hover:text-white"><i data-lucide="copy" class="w-3.5 h-3.5"></i></button>
+                                            </template>
+                                        </div>
+                                    </td>
+                                    <td class="p-3 text-slate-400" x-text="c.url || 'N/A'"></td>
+                                </tr>
+                            </template>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <!-- 📊 TAB 9: EXCEL EDITOR -->
+            <section x-show="currentTab === 'excelEditor'" class="space-y-4" x-cloak>
+                <div class="flex flex-col md:flex-row justify-between md:items-center gap-3 border-b border-slate-800 pb-3">
+                    <div>
+                        <h2 class="text-xl font-bold text-white flex items-center gap-2">
+                            <i data-lucide="sheet" class="w-5 h-5 text-emerald-400"></i> Editor Web de Hojas de Cálculo (Excel)
+                        </h2>
+                        <p class="text-xs text-slate-400">Suba un archivo Excel (.xlsx, .csv), edítelo interactivamente como en Excel y descargue la versión modificada.</p>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <label class="bg-emerald-600 hover:bg-emerald-500 text-white px-3.5 py-2 rounded-lg text-xs font-semibold flex items-center gap-1.5 cursor-pointer shadow-md">
+                            <i data-lucide="upload" class="w-4 h-4"></i> Cargar Excel (.xlsx)
+                            <input type="file" accept=".xlsx, .xls, .csv" @change="handleExcelUpload($event)" class="hidden">
+                        </label>
+                        <button @click="exportCurrentExcel()" class="bg-indigo-600 hover:bg-indigo-500 text-white px-3.5 py-2 rounded-lg text-xs font-semibold flex items-center gap-1.5 shadow-md">
+                            <i data-lucide="download" class="w-4 h-4"></i> Exportar Modificado (.xlsx)
+                        </button>
+                    </div>
+                </div>
+
+                <div class="bg-slate-900 border border-slate-800 rounded-xl p-3 shadow-lg">
+                    <div id="excelGrid" class="w-full h-[550px] overflow-hidden rounded-lg border border-slate-800"></div>
+                </div>
+            </section>
+
+            <!-- ⚠️ TAB 10: EQUIPOS DAÑADOS / BAJAS -->
+            <section x-show="currentTab === 'danados'" class="space-y-4" x-cloak>
+                <div class="flex flex-col md:flex-row justify-between md:items-center gap-3 border-b border-slate-800 pb-3">
+                    <div>
+                        <h2 class="text-xl font-bold text-white flex items-center gap-2">
+                            <i data-lucide="alert-triangle" class="w-5 h-5 text-red-400"></i> Consolidador de Equipos Dañados y Dados de Baja
+                        </h2>
+                        <p class="text-xs text-slate-400">Listado unificado de todos los dispositivos de TI que han sido retirados del servicio.</p>
+                    </div>
+                </div>
+
+                <div class="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden shadow-sm">
+                    <table class="w-full text-xs text-left text-slate-300">
+                        <thead class="text-[11px] uppercase bg-slate-950 text-slate-400 font-semibold border-b border-slate-800">
+                            <tr>
+                                <th class="p-3">Categoría</th>
+                                <th class="p-3">ID / Serie / IMEI</th>
+                                <th class="p-3">Modelo / Nombre</th>
+                                <th class="p-3">Sede & Área</th>
+                                <th class="p-3">Responsable</th>
+                                <th class="p-3">Fecha Baja</th>
+                                <th class="p-3">Motivo del Daño</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-slate-800/60">
+                            <template x-for="item in getDamagedItems()" :key="item.id">
+                                <tr class="hover:bg-slate-800/40">
+                                    <td class="p-3">
+                                        <span class="px-2 py-0.5 text-[10px] font-bold rounded-full bg-red-500/10 text-red-400 border border-red-500/20" x-text="item.categoria"></span>
+                                    </td>
+                                    <td class="p-3 font-bold text-white font-mono" x-text="item.id"></td>
+                                    <td class="p-3 text-slate-200 font-medium" x-text="item.modelo"></td>
+                                    <td class="p-3" x-text="`${item.sede} — ${item.area}`"></td>
+                                    <td class="p-3" x-text="item.responsable"></td>
+                                    <td class="p-3 text-slate-400" x-text="item.fechaBaja"></td>
+                                    <td class="p-3 text-amber-300 font-medium" x-text="item.motivo"></td>
+                                </tr>
+                            </template>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+        </main>
+    </div>
+
+    <!-- SCRIPT & ENGINE -->
+    <script>
+        function rojasItSystem() {
+            return {
+                currentRole: 'admin',
+                currentTab: 'dashboard',
+                bovedaSubTab: 'dvrs',
+                selectedPrinter: null,
+
+                globalShowPass: true, // Enabled by default for Administrador
+                searchEquipo: '',
+                showCloudModal: false,
+                cloudConnected: false,
+
+                hotInstance: null,
+                officeTotalContratadas: 25,
+                antivirusTotalContratadas: 50,
+
+                kasperskyAccount: {
+                    usuario: 'sistemas@rojashnos.com',
+                    clave: 'Rojas*2026@Kaspersky'
+                },
+
+                equipos: [],
+                celulares: [],
+                impresoras: [],
+                recargasToner: [],
+                licenciasOffice: [],
+                licenciasKaspersky: [],
+                bovedaDvrs: [],
+                bovedaWifi: [],
+                bovedaCuentas: [],
+
+                initApp() {
+                    this.loadData();
+                    this.$nextTick(() => lucide.createIcons());
+                },
+
+                setTab(tab) {
+                    this.currentTab = tab;
+                    if (tab === 'excelEditor' && !this.hotInstance) {
+                        this.$nextTick(() => this.initExcelGrid());
+                    }
+                    this.$nextTick(() => lucide.createIcons());
+                },
+
+                // Password Visibility Resolver for Administrator
+                getVisibleValue(val) {
+                    if (!val) return 'N/A';
+                    if (this.currentRole === 'admin') {
+                        return this.globalShowPass ? val : '••••••••';
+                    }
+                    return '••••••••';
+                },
+
+                toggleGlobalPassVisibility() {
+                    this.globalShowPass = !this.globalShowPass;
+                },
+
+                copyToClipboard(text) {
+                    if (!text) return;
+                    navigator.clipboard.writeText(text);
+                    alert(`¡Clave copiada al portapapeles!\n[ ${text} ]`);
+                },
+
+                getOfficeAvailableCount() {
+                    return Math.max(0, this.officeTotalContratadas - this.licenciasOffice.length);
+                },
+
+                getAntivirusAvailableCount() {
+                    const inUse = this.licenciasKaspersky.filter(k => k.estado === 'Activa').length;
+                    return Math.max(0, this.antivirusTotalContratadas - inUse);
+                },
+
+                get filteredEquipos() {
+                    return this.equipos.filter(e => {
+                        const search = this.searchEquipo.toLowerCase();
+                        return !search || (e.idEquipo || '').toLowerCase().includes(search) || (e.marca || '').toLowerCase().includes(search) || (e.responsable || '').toLowerCase().includes(search);
+                    });
+                },
+
+                getDamagedItems() {
+                    const eqDamaged = this.equipos.filter(e => e.sacarInventario === 'SI' || e.estado === 'Dado de baja').map(e => ({
+                        id: e.idEquipo,
+                        categoria: 'Computador / Servidor',
+                        modelo: `${e.marca} ${e.modelo}`,
+                        sede: e.sede,
+                        area: e.area || 'General',
+                        responsable: e.responsable || 'N/A',
+                        motivo: e.motivoDano || 'Falla de Hardware',
+                        fechaBaja: '2026-09-10'
+                    }));
+
+                    const celDamaged = this.celulares.filter(c => c.sacarInventario === 'SI').map(c => ({
+                        id: c.imei1 || `CEL-${c.no}`,
+                        categoria: 'Celular Corporativo',
+                        modelo: c.descripcionModelo,
+                        sede: c.sede,
+                        area: c.area,
+                        responsable: c.responsable,
+                        motivo: c.motivo || 'Sulfatado/Pantalla rota',
+                        fechaBaja: '2026-08-14'
+                    }));
+
+                    return [...eqDamaged, ...celDamaged];
+                },
+
+                countDamagedTotal() {
+                    return this.getDamagedItems().length;
+                },
+
+                calculateTotalInventoryValue() {
+                    return this.equipos.reduce((sum, e) => sum + (parseFloat(e.valorCop) || 0), 0);
+                },
+
+                formatCurrency(val) {
+                    return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(val || 0);
+                },
+
+                saveData() {
+                    localStorage.setItem('rojas_v3_equipos', JSON.stringify(this.equipos));
+                    localStorage.setItem('rojas_v3_celulares', JSON.stringify(this.celulares));
+                    localStorage.setItem('rojas_v3_impresoras', JSON.stringify(this.impresoras));
+                    localStorage.setItem('rojas_v3_toner', JSON.stringify(this.recargasToner));
+                    localStorage.setItem('rojas_v3_office', JSON.stringify(this.licenciasOffice));
+                    localStorage.setItem('rojas_v3_kaspersky', JSON.stringify(this.licenciasKaspersky));
+                    localStorage.setItem('rojas_v3_dvrs', JSON.stringify(this.bovedaDvrs));
+                    localStorage.setItem('rojas_v3_wifi', JSON.stringify(this.bovedaWifi));
+                    localStorage.setItem('rojas_v3_cuentas', JSON.stringify(this.bovedaCuentas));
+                },
+
+                loadData() {
+                    const eq = localStorage.getItem('rojas_v3_equipos');
+                    if (eq) {
+                        this.equipos = JSON.parse(eq);
+                        this.celulares = JSON.parse(localStorage.getItem('rojas_v3_celulares') || '[]');
+                        this.impresoras = JSON.parse(localStorage.getItem('rojas_v3_impresoras') || '[]');
+                        this.recargasToner = JSON.parse(localStorage.getItem('rojas_v3_toner') || '[]');
+                        this.licenciasOffice = JSON.parse(localStorage.getItem('rojas_v3_office') || '[]');
+                        this.licenciasKaspersky = JSON.parse(localStorage.getItem('rojas_v3_kaspersky') || '[]');
+                        this.bovedaDvrs = JSON.parse(localStorage.getItem('rojas_v3_dvrs') || '[]');
+                        this.bovedaWifi = JSON.parse(localStorage.getItem('rojas_v3_wifi') || '[]');
+                        this.bovedaCuentas = JSON.parse(localStorage.getItem('rojas_v3_cuentas') || '[]');
+                    } else {
+                        this.loadInitialExcelData();
+                    }
+                },
+
+                loadInitialExcelData() {
+                    this.equipos = [
+                        { idEquipo: 'PC-VS01', tipo: 'ESCRITORIO', marca: 'HP', modelo: 'All-in-One 24', numSerie: '8CC2340X', procesador: 'Intel i5', ram: '8 GB', almacenamiento: '256 GB SSD', estado: 'Activo', area: 'Sistemas', sede: 'Villavicencio', responsable: 'Sistemas', valorCop: 3200000, sacarInventario: 'NO' },
+                        { idEquipo: 'PC-VA01', tipo: 'ESCRITORIO', marca: 'HP', modelo: 'ProDesk 400 G6', numSerie: 'MXL0129Y', procesador: 'Intel i5 10th', ram: '16 GB', almacenamiento: '512 GB SSD', estado: 'Activo', area: 'Contabilidad', sede: 'Acacías', responsable: 'Sandra Perez', valorCop: 2800000, sacarInventario: 'NO' }
+                    ];
+
+                    this.celulares = [
+                        { no: 1, sede: 'Acacías', descripcionModelo: 'Samsung Galaxy A15', imei1: '358901234567891', area: 'Ventas', responsable: 'Carlos Gomez', telefono: '3101234567', clavePatron: '9876*Rojas', sacarInventario: 'NO' }
+                    ];
+
+                    this.impresoras = [
+                        { idImpresora: 'IVC1', referencia: 'HP LaserJet Pro 137 FNW', departamento: 'Facturación', ubicacion: 'Piso 1', sede: 'Villavicencio', conectividad: '192.168.1.50', sacarInventario: 'NO' }
+                    ];
+
+                    this.bovedaDvrs = [
+                        { id: 1, dispositivo: 'DVR Dahua 16 Ch Principal', direccion: '192.168.1.200', usuario: 'admin', clave: 'Rojasdvr2026*', sede: 'Villavicencio', p2p: '4K092123', patron: 'Z-1234', almacenamiento: '2 TB' }
+                    ];
+
+                    this.bovedaWifi = [
+                        { id: 1, numero: '01', sede: 'Villavicencio', referencia: 'Huawei HG8145V5', red: 'RojasHnos_Principal', claveWifi: 'RH2026*Wifi', usuarioRouter: 'telecomadmin', claveRouter: 'admintelecom2026' }
+                    ];
+
+                    this.bovedaCuentas = [
+                        { id: 1, servicio: 'Google Workspace Principal', categoria: 'Gmail / Correo', usuario: 'administracion@rojashnos.com', clave: 'GSuiteRojas2026!', url: 'admin.google.com' }
+                    ];
+
+                    this.licenciasOffice = [
+                        { id: 1, numLicencia: '1', nombreLicencia: 'ALEJANDRA PINZON', usuarioCorreo: 'contador@rojashnos.com', planLicencia: 'Microsoft 365 Business', departamento: 'Contabilidad', sede: 'Villavicencio', responsable: 'Alejandra Pinzón' }
+                    ];
+
+                    this.licenciasKaspersky = [
+                        { id: 1, idEquipo: 'PC-VS01', equipoModelo: 'HP All-in-One 24', departamento: 'Sistemas', sede: 'Villavicencio', responsable: 'Sistemas', estado: 'Activa' }
+                    ];
+
+                    this.saveData();
+                }
+            }
+        }
+    </script>
+</body>
+</html>
